@@ -3,3 +3,5 @@
 launcher(XK_x, "/usr/bin/xterm")
 launcher(XK_f, "/usr/bin/iceweasel", "-ProfileManager", "-no-remote")
 launcher(XK_period, "/usr/bin/xtrlock")
+launcher(XK_minus, "dpms off", "/usr/bin/xset -dpms s off")
+launcher(XK_equal, "dpms on", "/usr/bin/xset +dpms s on")
