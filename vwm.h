@@ -42,7 +42,7 @@ typedef struct _vwm_window_t {
 	XSizeHints		*hints;			/* hints the client supplied */
 	long			hints_supplied;		/* bitfield reflecting the hints the client supplied */
 
-	unsigned int		fullscreened:2;		/* is the window fullscreened (1)?  is the window "allscreened" with the border obscured (2)? */
+	unsigned int		autoconfigured:3;	/* autoconfigured window states (none/quarter/half/full/all) */
 	unsigned int		mapped:1;		/* has mapping been requested on the window? */
 	unsigned int		shelved:1;		/* is the window shelved? */
 } vwm_window_t;

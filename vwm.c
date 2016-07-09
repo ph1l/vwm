@@ -30,6 +30,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <stdarg.h>
 #include <string.h>
 #include <inttypes.h>
 #include <sys/types.h>
@@ -374,45 +375,133 @@ static vwm_window_t * vwm_win_focused(void)
 	return vwin;
 }
 
-/* fullscreen a window with borders obscured "allscreen" */
-static void vwm_win_allscreen(vwm_window_t *vwin)
+/* "autoconfigure" windows (configuration shortcuts like fullscreen/halfscreen/quarterscreen) and restoring the window */
+typedef enum _vwm_win_autoconf_t {
+        VWM_WIN_AUTOCONF_NONE,		/* un-autoconfigured window (used to restore the configuration) */
+        VWM_WIN_AUTOCONF_QUARTER,       /* quarter-screened */
+        VWM_WIN_AUTOCONF_HALF,          /* half-screened */
+        VWM_WIN_AUTOCONF_FULL,          /* full-screened */
+        VWM_WIN_AUTOCONF_ALL            /* all-screened (borderless) */
+} vwm_win_autoconf_t;
+
+typedef enum _vwm_side_t {
+        VWM_SIDE_TOP,
+        VWM_SIDE_BOTTOM,
+        VWM_SIDE_LEFT,
+        VWM_SIDE_RIGHT
+} vwm_side_t;
+
+typedef enum _vwm_corner_t {
+        VWM_CORNER_TOP_LEFT,
+        VWM_CORNER_TOP_RIGHT,
+        VWM_CORNER_BOTTOM_RIGHT,
+        VWM_CORNER_BOTTOM_LEFT
+} vwm_corner_t;
+
+static void vwm_win_autoconf(vwm_window_t *vwin, vwm_win_autoconf_t conf, ...)
 {
-	Window		root;
-	int		x, y;
-	unsigned int	width, height, border_width, depth;
+        va_list                 ap;
+        XWindowChanges          changes = { .border_width = WINDOW_BORDER_WIDTH };
 
-	if(vwin->fullscreened == 2) return;
+        Window          root;
+        int             x, y;
+        unsigned int    width, height, border_width, depth;
 
-	XGetGeometry(display, RootWindow(display, screen_num), &root, &x, &y, &width, &height, &border_width, &depth);
-	XGetGeometry(display, vwin->window, &root, &vwin->client.x, &vwin->client.y, &vwin->client.width, &vwin->client.height, &border_width, &depth);
-	XMoveResizeWindow(display, vwin->window, -border_width, -border_width, width, height);
-	vwin->fullscreened = 2;
-}
+        XGetGeometry(display, RootWindow(display, screen_num), &root, &x, &y, &width, &height, &border_width, &depth);
 
-/* fullscreen a window */
-static void vwm_win_fullscreen(vwm_window_t *vwin)
-{
-	Window		root;
-	int		x, y;
-	unsigned int	width, height, border_width, depth;
+	/* remember the current configuration as the "client" configuration if it's not an autoconfigured one. */
+	if(vwin->autoconfigured == VWM_WIN_AUTOCONF_NONE) XGetGeometry(display, vwin->window, &root, &vwin->client.x, &vwin->client.y, &vwin->client.width, &vwin->client.height, &border_width, &depth);
 
-	if(vwin->fullscreened == 1) return;
+        va_start(ap, conf);
+        switch(conf) {
+                case VWM_WIN_AUTOCONF_QUARTER: {
+                        vwm_corner_t corner = va_arg(ap, vwm_corner_t);
+                        changes.width = width / 2 - (WINDOW_BORDER_WIDTH * 2);
+                        changes.height = height / 2 - (WINDOW_BORDER_WIDTH * 2);
+                        switch(corner) {
+                                case VWM_CORNER_TOP_LEFT:
+                                        changes.x = 0;
+                                        changes.y = 0;
+                                        break;
 
-	XGetGeometry(display, RootWindow(display, screen_num), &root, &x, &y, &width, &height, &border_width, &depth);
-	/* TODO: do not remember the current geometry if we're going from allscreen to fullscreen! */
-	XGetGeometry(display, vwin->window, &root, &vwin->client.x, &vwin->client.y, &vwin->client.width, &vwin->client.height, &border_width, &depth);
-	XMoveResizeWindow(display, vwin->window, 0, 0, width - (border_width * 2), height - (border_width * 2));
-	vwin->fullscreened = 1;
-}
+                                case VWM_CORNER_TOP_RIGHT:
+                                        changes.x = width / 2;
+                                        changes.y = 0;
+                                        break;
 
+                                case VWM_CORNER_BOTTOM_RIGHT:
+                                        changes.x = width / 2;
+                                        changes.y = height / 2;
+                                        break;
 
-/* restore a window to its non-fullscreened size and coordinates */
-static void vwm_win_restore(vwm_window_t *vwin)
-{
-	if(!vwin->fullscreened) return;
+                                case VWM_CORNER_BOTTOM_LEFT:
+                                        changes.x = 0;
+                                        changes.y = height / 2;
+                                        break;
+                        }
+                        break;
+                }
 
-	XMoveResizeWindow(display, vwin->window, vwin->client.x, vwin->client.y, vwin->client.width, vwin->client.height);
-	vwin->fullscreened = 0;
+                case VWM_WIN_AUTOCONF_HALF: {
+                        vwm_side_t side = va_arg(ap, vwm_side_t);
+                        switch(side) {
+                                case VWM_SIDE_TOP:
+                                        changes.width = width - (WINDOW_BORDER_WIDTH * 2);
+                                        changes.height =height / 2 - (WINDOW_BORDER_WIDTH * 2);
+                                        changes.x = 0;
+                                        changes.y = 0;
+                                        break;
+
+                                case VWM_SIDE_BOTTOM:
+                                        changes.width = width - (WINDOW_BORDER_WIDTH * 2);
+                                        changes.height = height / 2 - (WINDOW_BORDER_WIDTH * 2);
+                                        changes.x = 0;
+                                        changes.y = height / 2;
+                                        break;
+
+                                case VWM_SIDE_LEFT:
+                                        changes.width = width / 2 - (WINDOW_BORDER_WIDTH * 2);
+                                        changes.height = height - (WINDOW_BORDER_WIDTH * 2);
+                                        changes.x = 0;
+                                        changes.y = 0;
+                                        break;
+
+                                case VWM_SIDE_RIGHT:
+                                        changes.width = width / 2 - (WINDOW_BORDER_WIDTH * 2);
+                                        changes.height = height - (WINDOW_BORDER_WIDTH * 2);
+                                        changes.x = width / 2;
+                                        changes.y = 0;
+                                        break;
+                        }
+                        break;
+                }
+
+                case VWM_WIN_AUTOCONF_FULL:
+                        changes.width = width - WINDOW_BORDER_WIDTH * 2;
+                        changes.height = height - WINDOW_BORDER_WIDTH * 2;
+                        changes.x = 0;
+                        changes.y = 0;
+                        break;
+
+                case VWM_WIN_AUTOCONF_ALL:
+                        changes.width = width;
+                        changes.height = height;
+                        changes.x = 0;
+                        changes.y = 0;
+                        changes.border_width = 0;
+                        break;
+
+                case VWM_WIN_AUTOCONF_NONE: /* restore window if autoconfigured */
+                        changes.width = vwin->client.width;
+                        changes.height = vwin->client.height;
+                        changes.x = vwin->client.x;
+                        changes.y = vwin->client.y;
+                        break;
+        }
+        va_end(ap);
+
+        XConfigureWindow(display, vwin->window, CWX | CWY | CWWidth | CWHeight | CWBorderWidth, &changes);
+        vwin->autoconfigured = conf;
 }
 
 
@@ -575,7 +664,7 @@ static vwm_window_t * vwm_win_manage(Window win, vwm_grab_mode_t grabbed)
 
 	vwin->desktop = focused_desktop;
 	vwin->window = win;
-	vwin->fullscreened = 0;
+	vwin->autoconfigured = VWM_WIN_AUTOCONF_NONE;
 	vwin->shelved = (focused_context == VWM_CONTEXT_FOCUS_SHELF);	/* if we're in the shelf when the window is created, the window is shelved */
 	vwin->mapped = (attrs.map_state != IsUnmapped);
 
@@ -893,7 +982,7 @@ static int vwm_clicked(Window win, XEvent *impetus)
 							break;
 					}
 					/* once you manipulate the window it's no longer fullscreened, simply hitting Mod1+Return once will restore fullscreened mode */
-					vwin->fullscreened = 0;
+					vwin->autoconfigured = VWM_WIN_AUTOCONF_NONE;
 					finished = 1;
 					break;
 
@@ -1114,10 +1203,10 @@ static void vwm_keypressed(Window win, XEvent *keypress)
 
 					if(repeat_cnt == 1) {
 						/* double: reraise & fullscreen */
-						vwm_win_fullscreen(vwin);
+						vwm_win_autoconf(vwin, VWM_WIN_AUTOCONF_FULL);
 					} else if(repeat_cnt == 2) {
 						 /* triple: reraise & fullscreen w/borders obscured by screen perimiter */
-						vwm_win_allscreen(vwin);
+						vwm_win_autoconf(vwin, VWM_WIN_AUTOCONF_ALL);
 					}
 					XFlush(display);
 				}
@@ -1132,8 +1221,8 @@ static void vwm_keypressed(Window win, XEvent *keypress)
 						vwm_win_migrate(vwin, focused_desktop);
 					}
 				} else {
-					if(vwin->fullscreened == 2) {
-						vwm_win_fullscreen(vwin);
+					if(vwin->autoconfigured == VWM_WIN_AUTOCONF_ALL) {
+						vwm_win_autoconf(vwin, VWM_WIN_AUTOCONF_FULL);
 					} else {
 						XLowerWindow(display, vwin->window);
 					}
@@ -1144,10 +1233,10 @@ static void vwm_keypressed(Window win, XEvent *keypress)
 
 		case XK_Return: /* (full-screen / restore) focused window */
 			if((vwin = vwm_win_focused())) {
-				if(vwin->fullscreened) {
-					vwm_win_restore(vwin);
+				if(vwin->autoconfigured) {
+					vwm_win_autoconf(vwin, VWM_WIN_AUTOCONF_NONE);
 				} else {
-					vwm_win_fullscreen(vwin);
+					vwm_win_autoconf(vwin, VWM_WIN_AUTOCONF_FULL);
 				}
 			}
 			break;
@@ -1157,6 +1246,46 @@ static void vwm_keypressed(Window win, XEvent *keypress)
 				vwm_win_shelve(vwin);
 			}
 			break;
+
+                case XK_bracketleft:    /* reconfigure the focused window to occupy the left or top half of the screen or left quarters on repeat */
+                        if((vwin = vwm_win_focused())) {
+                                do_grab = 1;
+
+                                if(keypress->xkey.state & ShiftMask) {
+                                        if(!repeat_cnt) {
+                                                vwm_win_autoconf(vwin, VWM_WIN_AUTOCONF_HALF, VWM_SIDE_TOP);
+                                        } else {
+                                                vwm_win_autoconf(vwin, VWM_WIN_AUTOCONF_QUARTER, VWM_CORNER_TOP_LEFT);
+                                        }
+                                } else {
+                                        if(!repeat_cnt) {
+                                                vwm_win_autoconf(vwin, VWM_WIN_AUTOCONF_HALF, VWM_SIDE_LEFT);
+                                        } else {
+                                                vwm_win_autoconf(vwin, VWM_WIN_AUTOCONF_QUARTER, VWM_CORNER_BOTTOM_LEFT);
+                                        }
+                                }
+                        }
+                        break;
+
+                case XK_bracketright:   /* reconfigure the focused window to occupy the right or bottom half of the screen or right quarters on repeat */
+                        if((vwin = vwm_win_focused())) {
+                                do_grab = 1;
+
+                                if(keypress->xkey.state & ShiftMask) {
+                                        if(!repeat_cnt) {
+                                                vwm_win_autoconf(vwin, VWM_WIN_AUTOCONF_HALF, VWM_SIDE_BOTTOM);
+                                        } else {
+                                                vwm_win_autoconf(vwin, VWM_WIN_AUTOCONF_QUARTER, VWM_CORNER_BOTTOM_RIGHT);
+                                        }
+                                } else {
+                                        if(!repeat_cnt) {
+                                                vwm_win_autoconf(vwin, VWM_WIN_AUTOCONF_HALF, VWM_SIDE_RIGHT);
+                                        } else {
+                                                vwm_win_autoconf(vwin, VWM_WIN_AUTOCONF_QUARTER, VWM_CORNER_TOP_RIGHT);
+                                        }
+                                }
+                        }
+                        break;
 
 		default:
 			VWM_TRACE("Unhandled keycode: %x", (unsigned int)sym);
